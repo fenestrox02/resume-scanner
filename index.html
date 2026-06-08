@@ -524,19 +524,11 @@ function loadPreset(key) {
   document.getElementById('jdIn').value=PRESETS[key].jd;
 }
 
-let _uploadedFile = null;
-
 function handleFile(e, targetId) {
-  const f = e.target.files[0]; if (!f) return;
-  const ext = f.name.split('.').pop().toLowerCase();
-  if (ext === 'txt') {
-    const reader = new FileReader();
-    reader.onload = ev => { document.getElementById(targetId).value = ev.target.result; _uploadedFile = null; };
-    reader.readAsText(f);
-  } else {
-    _uploadedFile = f;
-    document.getElementById(targetId).value = `[File selected: ${f.name} — will be parsed server-side]`;
-  }
+  const f=e.target.files[0]; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{ document.getElementById(targetId).value=ev.target.result; };
+  reader.readAsText(f);
 }
 
 function showErr(msg) {
@@ -558,15 +550,7 @@ async function runScan() {
   document.getElementById('resultsContent').style.display='block';
   document.getElementById('resultsContent').innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;gap:14px;"><div class="dots"><span></span><span></span><span></span></div><div style="font-size:13px;color:var(--text2)">Running ML + Qwen AI analysis...</div></div>`;
   try {
-    let res;
-    if (_uploadedFile) {
-      const form = new FormData();
-      form.append('resume_file', _uploadedFile);
-      form.append('jd', jd);
-      res = await fetch('/api/scan', {method:'POST', body:form});
-    } else {
-      res = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({resume,jd})});
-    }
+    const res=await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resume,jd})});
     if(!res.ok){const err=await res.json();throw new Error(err.error||'Server error');}
     const data=await res.json();
     renderResults(data);
@@ -617,21 +601,12 @@ function handleBulkUpload(e) {
   document.getElementById('bulkScanBtn').disabled = bulkFileList.length === 0;
 }
 
-async function scanFile(file, jd) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'txt') {
-    const text = await new Promise(res => {
-      const reader = new FileReader();
-      reader.onload = e => res(e.target.result);
-      reader.readAsText(file);
-    });
-    return fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({resume:text, jd})});
-  } else {
-    const form = new FormData();
-    form.append('resume_file', file);
-    form.append('jd', jd);
-    return fetch('/api/scan', {method:'POST', body:form});
-  }
+async function readFileAsText(file) {
+  return new Promise((res) => {
+    const reader = new FileReader();
+    reader.onload = e => res(e.target.result);
+    reader.readAsText(file);
+  });
 }
 
 async function runBulkScan() {
@@ -649,8 +624,9 @@ async function runBulkScan() {
   document.getElementById('candidateTableBody').innerHTML = `<div class="table-empty"><div class="dots dots-purple" style="margin-bottom:12px"><span></span><span></span><span></span></div>Scanning ${bulkFileList.length} resumes...</div>`;
 
   for(const file of bulkFileList) {
+    const resumeText = await readFileAsText(file);
     try {
-      const res = await scanFile(file, jd);
+      const res = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resume:resumeText,jd})});
       const data = await res.json();
       candidateResults.push({
         name: file.name.replace(/\.(pdf|docx|txt)$/i,''),

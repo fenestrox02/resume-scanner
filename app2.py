@@ -7,9 +7,9 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from scipy.sparse import hstack, csr_matrix
 import joblib
-from openai import OpenAI
+from google import genai
 
-# DOCX / PDF
+# ── DOCX / PDF parsing ──
 try:
     from docx import Document as DocxDocument
     HAS_DOCX = True
@@ -17,22 +17,18 @@ except ImportError:
     HAS_DOCX = False
 
 try:
-    import fitz  # PyMuPDF
+    import fitz
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
 
-client = OpenAI(
-    api_key="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",
-    base_url="https://openrouter.ai/api/v1"
-)
-
-MODEL = "google/gemma-4-31b-it:free"
+# ── Gemini setup ──
+client_ai = genai.Client(api_key="AQ.Ab8RN6LzEFiRB9vInHTohHiQJvewqhTE0aCSPx31cnEAFjVVAA")
 
 app = Flask(__name__)
 CORS(app)
 
-# Load models 
+# ── Load models ──
 print("Loading models...")
 clf       = joblib.load('models/classification_model.pkl')
 tfidf_clf = joblib.load('models/tfidf.pkl')
@@ -42,8 +38,9 @@ jd_le     = joblib.load('models/jd_fit_label_encoder.pkl')
 ats_model = joblib.load('models/ats_model.pkl')
 ats_tfidf = joblib.load('models/ats_tfidf.pkl')
 ats_ohe   = joblib.load('models/ats_ohe.pkl')
+print("Models loaded!")
 
-#File 
+# ── File parsing ──
 def extract_text_from_file(file_bytes, filename):
     ext = filename.lower().split('.')[-1]
     if ext == 'txt':
@@ -81,7 +78,8 @@ def scan_resume(resume_text, jd_text):
     # 3. ATS Scoring
     ats_vec          = ats_tfidf.transform([resume_clean])
     ats_label_mapped = 'Good Fit' if jd_label == 'Fit' else 'No Fit'
-    ats_label        = ats_ohe.transform([[ats_label_mapped]])
+    import pandas as pd
+    ats_label        = ats_ohe.transform(pd.DataFrame([[ats_label_mapped]], columns=['original_label']))
     ats_score        = np.clip(ats_model.predict(hstack([ats_vec, ats_label]))[0], 0, 100)
 
     return {
@@ -90,7 +88,7 @@ def scan_resume(resume_text, jd_text):
         'ats_score': round(float(ats_score), 1)
     }
 
-
+# ── Gemini feedback (giữ nguyên prompt gốc của bạn) ──
 def get_ai_feedback(resume_text, jd_text, category, jd_match, ats_score):
     prompt = f"""You are a senior HR director with 20 years of experience in talent acquisition across Fortune 500 companies. You have reviewed over 50,000 resumes and have deep expertise in ATS systems, hiring trends, and what separates top candidates from average ones.
 
@@ -119,27 +117,19 @@ Based on your expert analysis, return ONLY a JSON object with these exact keys (
     "keyword_match": 0,
     "formatting": 0,
     "experience_relevance": 0
-  }},
-  "ai_score": 0
+  }}
 }}"""
 
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            temperature=0.3,
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}]
+        response = client_ai.models.generate_content(
+            model='gemini-2.0-flash-lite',
+            contents=prompt
         )
-        content = response.choices[0].message.content
-        if not content:
-            raise ValueError("Model returned empty response")
-        text = content.strip()
-        # Strip markdown fences + think tags
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+        text = response.text.strip()
         text = re.sub(r'```json|```', '', text).strip()
         return json.loads(text)
     except Exception as e:
-        print(f"AI error: {e}")
+        print(f"Gemini error: {e}")
         return {
             "overall_assessment": "AI analysis temporarily unavailable. Please try again later.",
             "keywords_found": [],
@@ -152,14 +142,13 @@ Based on your expert analysis, return ONLY a JSON object with these exact keys (
             }
         }
 
-#Routes 
+# ── Routes ──
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/api/scan', methods=['POST'])
 def api_scan():
-    # Support both JSON (text) and multipart (file upload)
     if request.content_type and 'multipart/form-data' in request.content_type:
         resume_text = request.form.get('resume', '')
         jd_text     = request.form.get('jd', '')
@@ -182,11 +171,7 @@ def api_scan():
         ml_result['ats_score']
     )
 
-    ai_score = ai_result.get('ai_score', None)
-    if ai_score is not None and ai_score != ml_result['ats_score']:
-        ml_result['ats_score'] = ai_score
-
     return jsonify({**ml_result, **ai_result})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
