@@ -22,3 +22,6 @@ build/
 .env
 __pycache__/
 *.csv
+.env
+__pycache__/
+*.csv
