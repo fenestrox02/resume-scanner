@@ -25,3 +25,4 @@ __pycache__/
 .env
 __pycache__/
 *.csv
+.env
