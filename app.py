@@ -23,7 +23,7 @@ except ImportError:
     HAS_PDF = False
 
 client = OpenAI(
-    api_key="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",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
     base_url="https://openrouter.ai/api/v1"
 )
 
