@@ -17,13 +17,13 @@ except ImportError:
     HAS_DOCX = False
 
 try:
-    import fitz  # PyMuPDF
+    import fitz  
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
 
 client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
+    api_key= "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",
     base_url="https://openrouter.ai/api/v1"
 )
 
@@ -33,7 +33,6 @@ app = Flask(__name__)
 CORS(app)
 
 # Load models 
-print("Loading models...")
 clf       = joblib.load('models/classification_model.pkl')
 tfidf_clf = joblib.load('models/tfidf.pkl')
 bert      = joblib.load('models/sentence_transformer.pkl')
@@ -69,16 +68,13 @@ def scan_resume(resume_text, jd_text):
     resume_clean = clean_text(resume_text)
     combined     = resume_clean + ' ' + clean_text(jd_text)
 
-    # 1. Classification
     tfidf_vec = tfidf_clf.transform([resume_clean])
     bert_vec  = csr_matrix(bert.encode([resume_clean]))
     category  = clf.predict(hstack([tfidf_vec, bert_vec]))[0]
 
-    # 2. JD Matching
     jd_pred  = jd_model.predict([combined])[0]
     jd_label = jd_le.inverse_transform([jd_pred])[0]
 
-    # 3. ATS Scoring
     ats_vec          = ats_tfidf.transform([resume_clean])
     ats_label_mapped = 'Good Fit' if jd_label == 'Fit' else 'No Fit'
     ats_label        = ats_ohe.transform([[ats_label_mapped]])
